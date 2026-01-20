@@ -79,7 +79,6 @@ const fragmentShader = `
   ${noiseGLSL}
   
   uniform float time;
-  uniform vec2 resolution;
   
   void main() {
     vec2 uv = gl_FragCoord.xy * 0.002;
@@ -100,42 +99,49 @@ const fragmentShader = `
 
 export default function TopographicBackground() {
   const containerRef = useRef<HTMLDivElement>(null);
-  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
-  const frameRef = useRef<number>(0);
 
   useEffect(() => {
     if (!containerRef.current) return;
 
+    const container = containerRef.current;
     const width = window.innerWidth;
     const height = window.innerHeight;
 
     // Scene setup
     const scene = new THREE.Scene();
     
-    // Orthographic camera that maps exactly to viewport
+    // Orthographic camera
     const camera = new THREE.OrthographicCamera(0, width, 0, height, 1, 3);
     camera.position.z = 2;
 
-    // Renderer with transparency
+    // Renderer
     const renderer = new THREE.WebGLRenderer({ 
       alpha: true,
-      antialias: true 
+      antialias: true,
+      powerPreference: 'high-performance'
     });
     renderer.setSize(width, height);
     renderer.setPixelRatio(window.devicePixelRatio);
     renderer.setClearColor(0x000000, 0);
-    rendererRef.current = renderer;
+    
+    // Style the canvas
+    renderer.domElement.style.position = 'fixed';
+    renderer.domElement.style.top = '0';
+    renderer.domElement.style.left = '0';
+    renderer.domElement.style.width = '100%';
+    renderer.domElement.style.height = '100%';
+    renderer.domElement.style.pointerEvents = 'none';
+    renderer.domElement.style.zIndex = '1';
 
-    // Full-screen plane geometry
+    // Geometry
     const geometry = new THREE.PlaneGeometry(width, height);
     geometry.translate(width / 2, height / 2, 0);
 
-    // Shader material with Perlin noise
+    // Material
     const clock = new THREE.Clock();
     const material = new THREE.ShaderMaterial({
       uniforms: {
-        time: { value: 0 },
-        resolution: { value: new THREE.Vector2(width, height) }
+        time: { value: 0 }
       },
       vertexShader,
       fragmentShader,
@@ -146,32 +152,27 @@ export default function TopographicBackground() {
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
 
-    containerRef.current.appendChild(renderer.domElement);
+    container.appendChild(renderer.domElement);
 
-    // Animation loop
+    // Animation
+    let animationId: number;
     function animate() {
-      frameRef.current = requestAnimationFrame(animate);
+      animationId = requestAnimationFrame(animate);
       material.uniforms.time.value = clock.getElapsedTime();
       renderer.render(scene, camera);
     }
     animate();
 
     return () => {
-      cancelAnimationFrame(frameRef.current);
+      cancelAnimationFrame(animationId);
       geometry.dispose();
       material.dispose();
       renderer.dispose();
-      if (containerRef.current?.contains(renderer.domElement)) {
-        containerRef.current.removeChild(renderer.domElement);
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
       }
     };
   }, []);
 
-  return (
-    <div 
-      ref={containerRef}
-      className="fixed inset-0 overflow-hidden pointer-events-none"
-      style={{ zIndex: 0 }}
-    />
-  );
+  return <div ref={containerRef} />;
 }
