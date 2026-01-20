@@ -7,10 +7,10 @@ import TopographicBackground from '@/components/TopographicBackground';
 
 const Index = () => {
   return (
-    <div className="min-h-screen bg-background relative">
+    <div className="min-h-screen bg-background">
       <TopographicBackground />
       <Header />
-      <main className="relative z-10">
+      <main className="relative" style={{ zIndex: 10 }}>
         <Hero />
         <AboutSection />
         <ContactSection />
