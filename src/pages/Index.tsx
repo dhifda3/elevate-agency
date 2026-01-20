@@ -3,12 +3,14 @@ import Hero from '@/components/Hero';
 import AboutSection from '@/components/AboutSection';
 import ContactSection from '@/components/ContactSection';
 import Footer from '@/components/Footer';
+import TopographicBackground from '@/components/TopographicBackground';
 
 const Index = () => {
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen bg-background relative">
+      <TopographicBackground />
       <Header />
-      <main>
+      <main className="relative z-10">
         <Hero />
         <AboutSection />
         <ContactSection />

@@ -106,9 +106,8 @@ export default function TopographicBackground() {
   useEffect(() => {
     if (!containerRef.current) return;
 
-    const container = containerRef.current;
-    const width = container.clientWidth || window.innerWidth;
-    const height = container.clientHeight || window.innerHeight;
+    const width = window.innerWidth;
+    const height = window.innerHeight;
 
     // Scene setup
     const scene = new THREE.Scene();
@@ -147,7 +146,7 @@ export default function TopographicBackground() {
     const mesh = new THREE.Mesh(geometry, material);
     scene.add(mesh);
 
-    container.appendChild(renderer.domElement);
+    containerRef.current.appendChild(renderer.domElement);
 
     // Animation loop
     function animate() {
@@ -157,34 +156,13 @@ export default function TopographicBackground() {
     }
     animate();
 
-    // Handle resize
-    const handleResize = () => {
-      const newWidth = container.clientWidth || window.innerWidth;
-      const newHeight = container.clientHeight || window.innerHeight;
-      
-      camera.right = newWidth;
-      camera.top = newHeight;
-      camera.updateProjectionMatrix();
-      
-      renderer.setSize(newWidth, newHeight);
-      material.uniforms.resolution.value.set(newWidth, newHeight);
-      
-      geometry.dispose();
-      const newGeometry = new THREE.PlaneGeometry(newWidth, newHeight);
-      newGeometry.translate(newWidth / 2, newHeight / 2, 0);
-      mesh.geometry = newGeometry;
-    };
-
-    window.addEventListener('resize', handleResize);
-
     return () => {
       cancelAnimationFrame(frameRef.current);
-      window.removeEventListener('resize', handleResize);
       geometry.dispose();
       material.dispose();
       renderer.dispose();
-      if (container.contains(renderer.domElement)) {
-        container.removeChild(renderer.domElement);
+      if (containerRef.current?.contains(renderer.domElement)) {
+        containerRef.current.removeChild(renderer.domElement);
       }
     };
   }, []);
@@ -192,7 +170,7 @@ export default function TopographicBackground() {
   return (
     <div 
       ref={containerRef}
-      className="absolute inset-0 overflow-hidden pointer-events-none"
+      className="fixed inset-0 overflow-hidden pointer-events-none"
       style={{ zIndex: 0 }}
     />
   );

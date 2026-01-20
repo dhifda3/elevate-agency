@@ -1,6 +1,5 @@
 import { motion } from 'framer-motion';
 import { Button } from '@/components/ui/button';
-import TopographicBackground from './TopographicBackground';
 
 export default function Hero() {
   const scrollToContact = () => {
@@ -9,7 +8,6 @@ export default function Hero() {
 
   return (
     <section className="relative min-h-screen flex items-center justify-center overflow-hidden bg-background">
-      <TopographicBackground />
       
       <div className="container mx-auto px-6 lg:px-12 py-32 relative" style={{ zIndex: 1 }}>
         <div className="max-w-4xl mx-auto text-center">
