@@ -1,130 +1,199 @@
-import { useEffect, useState, useMemo } from 'react';
+import { useEffect, useRef } from 'react';
+import * as THREE from 'three';
 
-interface ContourLine {
-  d: string;
-  opacity: number;
+// Simplex 3D Noise by Ian McEwan, Ashima Arts
+const noiseGLSL = `
+vec3 mod289(vec3 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 mod289(vec4 x) { return x - floor(x * (1.0 / 289.0)) * 289.0; }
+vec4 permute(vec4 x) { return mod289(((x*34.0)+1.0)*x); }
+vec4 taylorInvSqrt(vec4 r) { return 1.79284291400159 - 0.85373472095314 * r; }
+
+float snoise(vec3 v) {
+  const vec2 C = vec2(1.0/6.0, 1.0/3.0);
+  const vec4 D = vec4(0.0, 0.5, 1.0, 2.0);
+
+  vec3 i  = floor(v + dot(v, C.yyy));
+  vec3 x0 = v - i + dot(i, C.xxx);
+
+  vec3 g = step(x0.yzx, x0.xyz);
+  vec3 l = 1.0 - g;
+  vec3 i1 = min(g.xyz, l.zxy);
+  vec3 i2 = max(g.xyz, l.zxy);
+
+  vec3 x1 = x0 - i1 + C.xxx;
+  vec3 x2 = x0 - i2 + C.yyy;
+  vec3 x3 = x0 - D.yyy;
+
+  i = mod289(i);
+  vec4 p = permute(permute(permute(
+            i.z + vec4(0.0, i1.z, i2.z, 1.0))
+          + i.y + vec4(0.0, i1.y, i2.y, 1.0))
+          + i.x + vec4(0.0, i1.x, i2.x, 1.0));
+
+  float n_ = 0.142857142857;
+  vec3 ns = n_ * D.wyz - D.xzx;
+
+  vec4 j = p - 49.0 * floor(p * ns.z * ns.z);
+
+  vec4 x_ = floor(j * ns.z);
+  vec4 y_ = floor(j - 7.0 * x_);
+
+  vec4 x = x_ *ns.x + ns.yyyy;
+  vec4 y = y_ *ns.x + ns.yyyy;
+  vec4 h = 1.0 - abs(x) - abs(y);
+
+  vec4 b0 = vec4(x.xy, y.xy);
+  vec4 b1 = vec4(x.zw, y.zw);
+
+  vec4 s0 = floor(b0)*2.0 + 1.0;
+  vec4 s1 = floor(b1)*2.0 + 1.0;
+  vec4 sh = -step(h, vec4(0.0));
+
+  vec4 a0 = b0.xzyw + s0.xzyw*sh.xxyy;
+  vec4 a1 = b1.xzyw + s1.xzyw*sh.zzww;
+
+  vec3 p0 = vec3(a0.xy, h.x);
+  vec3 p1 = vec3(a0.zw, h.y);
+  vec3 p2 = vec3(a1.xy, h.z);
+  vec3 p3 = vec3(a1.zw, h.w);
+
+  vec4 norm = taylorInvSqrt(vec4(dot(p0,p0), dot(p1,p1), dot(p2,p2), dot(p3,p3)));
+  p0 *= norm.x;
+  p1 *= norm.y;
+  p2 *= norm.z;
+  p3 *= norm.w;
+
+  vec4 m = max(0.6 - vec4(dot(x0,x0), dot(x1,x1), dot(x2,x2), dot(x3,x3)), 0.0);
+  m = m * m;
+  return 42.0 * dot(m*m, vec4(dot(p0,x0), dot(p1,x1), dot(p2,x2), dot(p3,x3)));
 }
+`;
+
+const vertexShader = `
+  void main() {
+    gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
+  }
+`;
+
+const fragmentShader = `
+  ${noiseGLSL}
+  
+  uniform float time;
+  uniform vec2 resolution;
+  
+  void main() {
+    vec2 uv = gl_FragCoord.xy * 0.002;
+    
+    float noise = snoise(vec3(uv, time * 0.05));
+    noise = 12.0 * (noise + 1.0) / 2.0;
+    
+    float rounded = ceil(noise);
+    float rounding_error = rounded - noise;
+    
+    if (rounding_error > 0.08) {
+      discard;
+    }
+    
+    gl_FragColor = vec4(0.0, 0.0, 0.0, 0.25);
+  }
+`;
 
 export default function TopographicBackground() {
-  const [time, setTime] = useState(0);
+  const containerRef = useRef<HTMLDivElement>(null);
+  const rendererRef = useRef<THREE.WebGLRenderer | null>(null);
+  const frameRef = useRef<number>(0);
 
   useEffect(() => {
-    const interval = setInterval(() => {
-      setTime(t => t + 0.015);
-    }, 50);
-    return () => clearInterval(interval);
+    if (!containerRef.current) return;
+
+    const container = containerRef.current;
+    const width = container.clientWidth || window.innerWidth;
+    const height = container.clientHeight || window.innerHeight;
+
+    // Scene setup
+    const scene = new THREE.Scene();
+    
+    // Orthographic camera that maps exactly to viewport
+    const camera = new THREE.OrthographicCamera(0, width, 0, height, 1, 3);
+    camera.position.z = 2;
+
+    // Renderer with transparency
+    const renderer = new THREE.WebGLRenderer({ 
+      alpha: true,
+      antialias: true 
+    });
+    renderer.setSize(width, height);
+    renderer.setPixelRatio(window.devicePixelRatio);
+    renderer.setClearColor(0x000000, 0);
+    rendererRef.current = renderer;
+
+    // Full-screen plane geometry
+    const geometry = new THREE.PlaneGeometry(width, height);
+    geometry.translate(width / 2, height / 2, 0);
+
+    // Shader material with Perlin noise
+    const clock = new THREE.Clock();
+    const material = new THREE.ShaderMaterial({
+      uniforms: {
+        time: { value: 0 },
+        resolution: { value: new THREE.Vector2(width, height) }
+      },
+      vertexShader,
+      fragmentShader,
+      side: THREE.DoubleSide,
+      transparent: true
+    });
+
+    const mesh = new THREE.Mesh(geometry, material);
+    scene.add(mesh);
+
+    container.appendChild(renderer.domElement);
+
+    // Animation loop
+    function animate() {
+      frameRef.current = requestAnimationFrame(animate);
+      material.uniforms.time.value = clock.getElapsedTime();
+      renderer.render(scene, camera);
+    }
+    animate();
+
+    // Handle resize
+    const handleResize = () => {
+      const newWidth = container.clientWidth || window.innerWidth;
+      const newHeight = container.clientHeight || window.innerHeight;
+      
+      camera.right = newWidth;
+      camera.top = newHeight;
+      camera.updateProjectionMatrix();
+      
+      renderer.setSize(newWidth, newHeight);
+      material.uniforms.resolution.value.set(newWidth, newHeight);
+      
+      geometry.dispose();
+      const newGeometry = new THREE.PlaneGeometry(newWidth, newHeight);
+      newGeometry.translate(newWidth / 2, newHeight / 2, 0);
+      mesh.geometry = newGeometry;
+    };
+
+    window.addEventListener('resize', handleResize);
+
+    return () => {
+      cancelAnimationFrame(frameRef.current);
+      window.removeEventListener('resize', handleResize);
+      geometry.dispose();
+      material.dispose();
+      renderer.dispose();
+      if (container.contains(renderer.domElement)) {
+        container.removeChild(renderer.domElement);
+      }
+    };
   }, []);
-
-  const contourLines = useMemo(() => {
-    const lines: ContourLine[] = [];
-    const numLines = 20;
-    const baseAmplitude = 25;
-
-    for (let i = 0; i < numLines; i++) {
-      const yBase = 5 + (i * 90) / numLines;
-      const phase = i * 0.5 + time;
-      const amplitude = baseAmplitude * (0.5 + 0.5 * Math.sin(i * 0.3));
-      
-      let d = `M -5 ${yBase}`;
-      
-      for (let x = -5; x <= 105; x += 2) {
-        const y = yBase + 
-          amplitude * Math.sin((x * 0.05) + phase) * 0.3 +
-          amplitude * Math.sin((x * 0.02) + phase * 0.7) * 0.4 +
-          amplitude * Math.sin((x * 0.08) + phase * 1.3) * 0.2 +
-          (Math.sin(x * 0.03 + i) * 8);
-        d += ` L ${x} ${y}`;
-      }
-      
-      lines.push({
-        d,
-        opacity: 0.15 + (i % 4 === 0 ? 0.15 : 0)
-      });
-    }
-
-    // Add circular contour rings
-    for (let ring = 0; ring < 5; ring++) {
-      const cx = 65 + Math.sin(time * 0.3 + ring) * 8;
-      const cy = 45 + Math.cos(time * 0.2 + ring) * 8;
-      const baseRadius = 8 + ring * 7;
-      
-      let d = '';
-      const points = 60;
-      for (let p = 0; p <= points; p++) {
-        const angle = (p / points) * Math.PI * 2;
-        const radiusVariation = 
-          Math.sin(angle * 4 + time + ring) * 2 +
-          Math.sin(angle * 7 + time * 0.5) * 1.5;
-        const r = baseRadius + radiusVariation;
-        const x = cx + Math.cos(angle) * r;
-        const y = cy + Math.sin(angle) * r;
-        d += p === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
-      }
-      d += ' Z';
-      
-      lines.push({
-        d,
-        opacity: 0.12 + (ring === 0 ? 0.1 : 0)
-      });
-    }
-
-    // Another set of circular contours on the left
-    for (let ring = 0; ring < 3; ring++) {
-      const cx = 25 + Math.cos(time * 0.25 + ring) * 5;
-      const cy = 65 + Math.sin(time * 0.15 + ring) * 5;
-      const baseRadius = 6 + ring * 6;
-      
-      let d = '';
-      const points = 50;
-      for (let p = 0; p <= points; p++) {
-        const angle = (p / points) * Math.PI * 2;
-        const radiusVariation = 
-          Math.sin(angle * 3 + time * 0.8 + ring) * 2 +
-          Math.sin(angle * 5 + time * 0.4) * 1;
-        const r = baseRadius + radiusVariation;
-        const x = cx + Math.cos(angle) * r;
-        const y = cy + Math.sin(angle) * r;
-        d += p === 0 ? `M ${x} ${y}` : ` L ${x} ${y}`;
-      }
-      d += ' Z';
-      
-      lines.push({
-        d,
-        opacity: 0.1 + (ring === 0 ? 0.08 : 0)
-      });
-    }
-
-    return lines;
-  }, [time]);
 
   return (
     <div 
+      ref={containerRef}
       className="absolute inset-0 overflow-hidden pointer-events-none"
       style={{ zIndex: 0 }}
-    >
-      <svg
-        viewBox="0 0 100 100"
-        preserveAspectRatio="xMidYMid slice"
-        className="w-full h-full"
-        style={{ 
-          position: 'absolute',
-          top: 0,
-          left: 0,
-          width: '100%',
-          height: '100%'
-        }}
-      >
-        {contourLines.map((line, i) => (
-          <path
-            key={i}
-            d={line.d}
-            fill="none"
-            stroke="black"
-            strokeWidth="0.25"
-            style={{ opacity: line.opacity }}
-          />
-        ))}
-      </svg>
-    </div>
+    />
   );
 }
